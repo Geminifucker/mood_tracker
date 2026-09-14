@@ -10,12 +10,24 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#16171B">
+<!-- "이 페이지는 이미 어두운 테마다"라고 브라우저에 알려주는 표시.
+     이게 없으면 브라우저가 알아서 색을 뒤집어버리는 경우가 있어요. -->
+<meta name="color-scheme" content="dark">
+
+<!-- 홈 화면 아이콘 설정 -->
+<!-- 안드로이드/크롬은 manifest.json을 봅니다 -->
+<link rel="manifest" href="manifest.json">
+<!-- 아이폰은 manifest를 잘 안 보므로 이 태그를 따로 봐야 해요 -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
 <title>오늘 기분</title>
 
 <style>
 /* ===== 1) 색/치수를 변수로 한 곳에 모아두기 =====
    이렇게 해두면 색 바꿀 때 여기만 고치면 돼요. */
 :root {
+  color-scheme: dark;   /* CSS쪽에서도 같은 선언 (둘 다 해두는 게 안전) */
+
   --bg:      #16171B;   /* 배경 (밤에 보기 편한 어두운 톤) */
   --surface: #1E2026;   /* 카드 배경 */
   --line:    #2C2F36;   /* 경계선 */
@@ -88,7 +100,7 @@ body {
 .mood-btn {
   flex: 1;                  /* 5개가 공간을 똑같이 나눠 가짐 */
   aspect-ratio: 1 / 1;      /* 정사각형 유지 */
-  border: 1px solid var(--line);
+  border: none;             /* 평소엔 테두리 없음 */
   border-radius: 14px;
   background: var(--surface);
   color: var(--text);
@@ -98,14 +110,28 @@ body {
   align-items: center;
   justify-content: center;
   /* 누를 때만 짧게 반응 (불필요한 애니메이션은 안 넣음) */
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
-.mood-btn:active { transform: scale(0.94); }
+/* 누를 때 살짝 밝아지는 반응. 크기는 선택 표시에 쓰고 있으니 건드리지 않음 */
+.mood-btn:active { filter: brightness(1.25); }
 
-/* 오늘 이미 고른 기분은 테두리로 표시 */
+/* ===== 선택 표시 =====
+   색만으로 구분하면 브라우저가 색을 건드릴 때 뒤집혀 보일 수 있어요.
+   그래서 '크기 + 투명도 + 테두리' 세 가지를 같이 씁니다.
+   크기는 어떤 브라우저도 못 바꾸니까 확실한 신호예요. */
+.mood-btn {
+  opacity: 0.5;
+  transform: scale(0.86);            /* 안 고른 건 살짝 작게 */
+}
+/* 아직 아무것도 안 골랐을 때는 5개 다 똑같이 (고를 게 있다는 신호) */
+.moods.none-picked .mood-btn {
+  opacity: 1;
+  transform: scale(1);
+}
 .mood-btn.selected {
-  box-shadow: 0 0 0 2px var(--text);
-  border-color: transparent;
+  opacity: 1;
+  transform: scale(1);               /* 고른 것만 원래 크기 = 제일 크게 보임 */
+  box-shadow: 0 0 0 2.5px var(--text);
 }
 
 /* 키보드 탭으로 이동할 때 위치가 보이게 (접근성) */
@@ -376,6 +402,9 @@ function renderHeader() {
 function renderMoodButtons() {
   const box = document.getElementById("moods");
   box.innerHTML = "";   // 다시 그릴 때를 위해 먼저 비움
+
+  // 이 날짜에 아직 기록이 없으면 5개 모두 또렷하게 보여줌
+  box.classList.toggle("none-picked", !log[selectedKey]);
 
   // 배열을 하나씩 돌면서 버튼을 만들어 붙임 (반복문 복습!)
   MOODS.forEach(function (mood) {
