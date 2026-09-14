@@ -52,12 +52,31 @@ body {
   color: var(--muted);
   letter-spacing: 0.02em;
 }
+/* 날짜와 '오늘로' 버튼을 한 줄에 나란히 */
+.date-row {
+  display: flex;
+  align-items: baseline;   /* 글자 밑선 기준으로 맞춤 */
+  gap: 10px;
+  margin: 4px 0 28px;
+}
 .today-date {
   font-size: 30px;
   font-weight: 600;
-  margin: 4px 0 28px;
   line-height: 1.2;
 }
+/* 지난 날짜를 보고 있을 때만 나타남 */
+.today-btn {
+  display: none;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.today-btn.show { display: inline-block; }
 
 /* ===== 3) 기분 버튼 5개 (이 앱의 핵심) =====
    flexbox로 한 줄에 나란히 배치 */
@@ -193,6 +212,11 @@ button:focus-visible {
 .cell.filled { color: rgba(0,0,0,0.55); font-weight: 600; }
 .cell.today { box-shadow: 0 0 0 1.5px var(--text); }
 
+/* 눌러서 기록할 수 있는 날 (오늘 포함, 미래는 제외) */
+.cell.clickable { cursor: pointer; }
+/* 지금 고른 날. .today 아래에 써서 둘 다 해당될 때 이 색이 이김 */
+.cell.picked { box-shadow: 0 0 0 2px var(--m5); }
+
 /* ===== 5) 맨 아래 백업 영역 ===== */
 .footer {
   margin-top: 34px;
@@ -223,9 +247,12 @@ button:focus-visible {
 </head>
 <body>
 
-  <!-- 오늘 날짜 -->
-  <div class="today-label">오늘</div>
-  <div class="today-date" id="todayDate"></div>
+  <!-- 지금 고른 날짜 -->
+  <div class="today-label" id="dateLabel">오늘</div>
+  <div class="date-row">
+    <div class="today-date" id="todayDate"></div>
+    <button class="today-btn" id="todayBtn">오늘로</button>
+  </div>
 
   <!-- 기분 버튼 5개. JS에서 만들어 넣음 -->
   <div class="moods" id="moods"></div>
@@ -324,11 +351,25 @@ function toKey(date) {
 const today = new Date();
 const todayKey = toKey(today);
 
-/* --- 5) 오늘 날짜 글자 찍기 --- */
-function renderToday() {
+/* --- 5) 지금 기록 대상이 되는 날짜 ---
+   기본값은 오늘. 달력 칸을 누르면 그 날짜로 바뀝니다. */
+let selectedKey = todayKey;
+
+/* "2026-09-13" → "9월 13일 일요일" 로 바꿔주는 도우미 함수 */
+function labelOf(key) {
   const dows = ["일", "월", "화", "수", "목", "금", "토"];
-  document.getElementById("todayDate").textContent =
-    `${today.getMonth() + 1}월 ${today.getDate()}일 ${dows[today.getDay()]}요일`;
+  const parts = key.split("-").map(Number);          // ["2026","09","13"] → [2026,9,13]
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  return `${parts[1]}월 ${parts[2]}일 ${dows[date.getDay()]}요일`;
+}
+
+/* --- 5-2) 화면 맨 위 날짜 영역 그리기 --- */
+function renderHeader() {
+  const isToday = selectedKey === todayKey;
+  document.getElementById("dateLabel").textContent = isToday ? "오늘" : "지난 기록";
+  document.getElementById("todayDate").textContent = labelOf(selectedKey);
+  // 지난 날짜일 때만 '오늘로' 버튼 보이기
+  document.getElementById("todayBtn").classList.toggle("show", !isToday);
 }
 
 /* --- 6) 기분 버튼 5개 만들기 --- */
@@ -344,18 +385,19 @@ function renderMoodButtons() {
     btn.setAttribute("aria-label", mood.name);   // 화면 읽기 도구용 이름
     btn.style.background = `var(--m${mood.score})`;
 
-    // 오늘 이미 고른 점수면 표시해두기
-    if (log[todayKey] === mood.score) {
+    // 지금 고른 날짜에 이미 기록된 점수면 표시해두기
+    if (log[selectedKey] === mood.score) {
       btn.classList.add("selected");
     }
 
     // 클릭하면 바로 저장 (확인 버튼 없음 = 3초 컷)
     btn.addEventListener("click", function () {
-      log[todayKey] = mood.score;
+      log[selectedKey] = mood.score;
       saveLog(log);
       renderMoodButtons();   // 선택 표시 갱신
       renderCalendar();      // 달력에도 바로 반영
-      showStatus(`오늘은 "${mood.name}"으로 저장했어요.`);
+      const when = selectedKey === todayKey ? "오늘은" : labelOf(selectedKey) + "을";
+      showStatus(`${when} "${mood.name}"으로 저장했어요.`);
       checkBackupBanner();   // 기록한 직후에 백업할 때가 됐는지 확인
     });
 
@@ -370,9 +412,15 @@ function showStatus(message) {
     el.textContent = "이 환경에서는 저장이 막혀 있어요. 폰이나 실제 주소에서 열면 저장됩니다.";
     return;
   }
-  el.textContent = message || (log[todayKey]
-    ? `오늘은 "${MOODS[log[todayKey] - 1].name}"으로 기록됨. 다시 누르면 바뀌어요.`
-    : "오늘 기분을 하나 골라주세요.");
+  if (message) {          // 방금 저장했다는 안내가 있으면 그걸 그대로 보여줌
+    el.textContent = message;
+    return;
+  }
+  const score = log[selectedKey];
+  const when = selectedKey === todayKey ? "오늘" : labelOf(selectedKey);
+  el.textContent = score
+    ? `${when} "${MOODS[score - 1].name}"으로 기록됨. 다시 누르면 바뀌어요.`
+    : `${when} 기분을 하나 골라주세요.`;
 }
 
 /* --- 7-2) 오늘이 이번 달 마지막 날인지 확인 ---
@@ -451,6 +499,22 @@ function renderCalendar() {
       el.title = `${viewMonth + 1}월 ${day}일 · ${MOODS[score - 1].name}`;
     }
     if (key === todayKey) el.classList.add("today");
+    if (key === selectedKey) el.classList.add("picked");
+
+    /* 오늘까지만 누를 수 있게. 미래 기분은 기록할 게 없으니까요.
+       날짜가 "2026-09-13" 형태라서 문자열끼리 비교해도 순서가 정확히 맞아요. */
+    if (key <= todayKey) {
+      el.classList.add("clickable");
+      el.addEventListener("click", function () {
+        selectedKey = key;     // 기록 대상을 이 날짜로 바꿈
+        renderHeader();
+        renderMoodButtons();
+        renderCalendar();
+        showStatus();
+        // 폰에서는 버튼이 화면 위에 있으니 위로 올려줌
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
 
     grid.appendChild(el);
   }
@@ -466,6 +530,17 @@ document.getElementById("nextBtn").addEventListener("click", function () {
   viewMonth++;
   if (viewMonth > 11) { viewMonth = 0; viewYear++; }
   renderCalendar();
+});
+
+/* --- 9-2) '오늘로' 버튼: 기록 대상을 오늘로 되돌리고 달력도 이번 달로 --- */
+document.getElementById("todayBtn").addEventListener("click", function () {
+  selectedKey = todayKey;
+  viewYear = today.getFullYear();
+  viewMonth = today.getMonth();
+  renderHeader();
+  renderMoodButtons();
+  renderCalendar();
+  showStatus();
 });
 
 /* --- 10) 백업: 기록을 파일로 내보내기 --- */
@@ -530,7 +605,7 @@ document.getElementById("fileInput").addEventListener("change", function (event)
 viewYear = today.getFullYear();
 viewMonth = today.getMonth();
 
-renderToday();
+renderHeader();
 renderMoodButtons();
 renderCalendar();
 showStatus();
