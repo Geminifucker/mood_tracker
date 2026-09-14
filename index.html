@@ -98,7 +98,48 @@ button:focus-visible {
   min-height: 20px;
   font-size: 13px;
   color: var(--muted);
-  margin-bottom: 32px;
+  margin-bottom: 10px;
+}
+
+/* ===== 백업 알림 배너 =====
+   평소엔 display:none으로 숨어 있고, 조건이 맞으면 .show를 붙여서 보여줌.
+   이렇게 '클래스만 갈아끼우기'가 JS로 화면 바꾸는 가장 기본 패턴이에요. */
+.banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  margin-bottom: 22px;
+  border-radius: 12px;
+  /* 기분 5단계의 노란색을 옅게 깔아서 '알림'이라는 걸 표시 */
+  background: rgba(217, 169, 74, 0.12);
+  border: 1px solid rgba(217, 169, 74, 0.35);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.banner.show { display: flex; }
+.banner p { margin: 0; flex: 1; }
+.banner-btn {
+  flex-shrink: 0;               /* 글자가 길어도 버튼이 찌그러지지 않게 */
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--m5);
+  color: #221B08;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.banner-close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
 }
 
 /* ===== 4) 달력 ===== */
@@ -106,6 +147,10 @@ button:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 위쪽 여백을 여기서 잡아둠.
+     이웃한 요소끼리 margin은 '합쳐지지 않고 더 큰 값 하나만' 적용돼요(마진 병합).
+     덕분에 배너가 있든 없든 달력 위 간격이 32px로 똑같이 유지됩니다. */
+  margin-top: 32px;
   margin-bottom: 14px;
 }
 .cal-title { font-size: 15px; font-weight: 600; }
@@ -184,6 +229,13 @@ button:focus-visible {
   <div class="moods" id="moods"></div>
   <div class="status" id="status"></div>
 
+  <!-- 백업 알림 배너. 처음엔 숨어 있음 -->
+  <div class="banner" id="banner">
+    <p>오늘이 이번 달 마지막 날이에요. 기록 백업해둘까요?</p>
+    <button class="banner-btn" id="bannerBackup">백업</button>
+    <button class="banner-close" id="bannerClose" aria-label="닫기">×</button>
+  </div>
+
   <!-- 달력 -->
   <div class="cal-head">
     <button class="nav-btn" id="prevBtn" aria-label="이전 달">‹</button>
@@ -225,7 +277,8 @@ const MOODS = [
    localStorage = 브라우저가 기기에 남겨두는 작은 저장 공간.
    단, 미리보기 창처럼 막혀 있는 환경도 있어서 try/catch로 감싸고
    실패하면 임시 메모리에라도 담아둡니다. */
-const STORE_KEY = "mood-log";
+const STORE_KEY = "mood-log";          // 기분 기록
+const BACKUP_KEY = "mood-backup-month"; // 마지막으로 백업한 달 ("2026-09" 형태)
 let memoryFallback = {};   // localStorage를 못 쓸 때 대신 담을 곳
 let storageOK = true;
 
@@ -301,6 +354,7 @@ function renderMoodButtons() {
       renderMoodButtons();   // 선택 표시 갱신
       renderCalendar();      // 달력에도 바로 반영
       showStatus(`오늘은 "${mood.name}"으로 저장했어요.`);
+      checkBackupBanner();   // 기록한 직후에 백업할 때가 됐는지 확인
     });
 
     box.appendChild(btn);
@@ -317,6 +371,41 @@ function showStatus(message) {
   el.textContent = message || (log[todayKey]
     ? `오늘은 "${MOODS[log[todayKey] - 1].name}"으로 기록됨. 다시 누르면 바뀌어요.`
     : "오늘 기분을 하나 골라주세요.");
+}
+
+/* --- 7-2) 오늘이 이번 달 마지막 날인지 확인 ---
+   "다음 달 0일"이 그 달의 마지막 날짜예요. 달력 그릴 때 쓴 요령과 같습니다.
+   오늘 날짜가 그 숫자와 같으면 = 마지막 날. */
+function isLastDayOfMonth() {
+  const lastDate = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  return today.getDate() === lastDate;
+}
+
+/* 이번 달을 "2026-09" 모양으로 (백업했는지 비교할 때 씀) */
+function thisMonthKey() {
+  return todayKey.slice(0, 7);   // "2026-09-14" 앞 7글자만 자르기
+}
+
+/* 이번 달에 이미 백업했는지 */
+function alreadyBackedUp() {
+  try {
+    return localStorage.getItem(BACKUP_KEY) === thisMonthKey();
+  } catch (e) {
+    return false;
+  }
+}
+
+/* --- 7-3) 배너를 띄울지 결정 ---
+   조건 세 개를 모두 만족해야 뜹니다:
+   오늘이 마지막 날 / 이번 달 백업 아직 안 함 / 기록이 하나라도 있음 */
+function checkBackupBanner() {
+  const banner = document.getElementById("banner");
+  const shouldShow =
+    isLastDayOfMonth() &&
+    !alreadyBackedUp() &&
+    Object.keys(log).length > 0;
+
+  banner.classList.toggle("show", shouldShow);   // true면 붙이고 false면 떼기
 }
 
 /* --- 8) 달력 그리기 (이 앱에서 제일 재밌는 부분) --- */
@@ -378,7 +467,9 @@ document.getElementById("nextBtn").addEventListener("click", function () {
 });
 
 /* --- 10) 백업: 기록을 파일로 내보내기 --- */
-document.getElementById("exportBtn").addEventListener("click", function () {
+/* 아래 백업 버튼과 배너의 백업 버튼이 똑같은 일을 하므로
+   함수로 한 번만 만들어두고 두 곳에서 불러 씁니다. */
+function exportLog() {
   const text = JSON.stringify(log, null, 2);            // 보기 좋게 줄바꿈 포함
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -389,6 +480,22 @@ document.getElementById("exportBtn").addEventListener("click", function () {
   a.download = `기분기록-${todayKey}.json`;
   a.click();
   URL.revokeObjectURL(url);
+
+  // "이번 달은 백업했다"고 적어두기 → 같은 달엔 배너가 다시 안 뜸
+  try {
+    localStorage.setItem(BACKUP_KEY, thisMonthKey());
+  } catch (e) { /* 저장이 막힌 환경이면 그냥 넘어감 */ }
+
+  document.getElementById("banner").classList.remove("show");
+}
+
+document.getElementById("exportBtn").addEventListener("click", exportLog);
+document.getElementById("bannerBackup").addEventListener("click", exportLog);
+
+/* 배너의 × 버튼: 이번엔 그냥 닫기. 백업 기록은 남기지 않으니
+   다음에 기록을 누르면 (아직 마지막 날이면) 또 뜹니다. */
+document.getElementById("bannerClose").addEventListener("click", function () {
+  document.getElementById("banner").classList.remove("show");
 });
 
 /* --- 11) 백업: 파일에서 기록 불러오기 --- */
