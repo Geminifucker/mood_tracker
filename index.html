@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<!-- 모바일에서 화면 크기에 맞게 보이게 하는 필수 태그 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 홈 화면에 추가했을 때 주소창 없이 앱처럼 뜨게 함 (iOS) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#16171B">
+<title>오늘 기분</title>
+
+<style>
+/* ===== 1) 색/치수를 변수로 한 곳에 모아두기 =====
+   이렇게 해두면 색 바꿀 때 여기만 고치면 돼요. */
+:root {
+  --bg:      #16171B;   /* 배경 (밤에 보기 편한 어두운 톤) */
+  --surface: #1E2026;   /* 카드 배경 */
+  --line:    #2C2F36;   /* 경계선 */
+  --text:    #ECEAE4;   /* 본문 글자 */
+  --muted:   #868A93;   /* 흐린 글자 */
+
+  /* 기분 1~5단계 색. 나쁨=차갑고 어둡게, 좋음=따뜻하고 밝게 */
+  --m1: #3D4457;
+  --m2: #4E6E82;
+  --m3: #6F9080;
+  --m4: #A8A45E;
+  --m5: #D9A94A;
+}
+
+/* 모든 요소의 크기 계산을 테두리 포함으로 (box-model 복습!) */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 24px 20px 40px;
+  background: var(--bg);
+  color: var(--text);
+  /* 한글이 예쁘게 나오는 시스템 글꼴 순서. 인터넷 없어도 동작해요. */
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+               "Pretendard", "Malgun Gothic", "맑은 고딕", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  max-width: 420px;      /* 폰 너비 기준. PC에서도 너무 안 퍼지게 */
+  margin-inline: auto;   /* 가운데 정렬 */
+}
+
+/* ===== 2) 오늘 날짜 영역 ===== */
+.today-label {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.today-date {
+  font-size: 30px;
+  font-weight: 600;
+  margin: 4px 0 28px;
+  line-height: 1.2;
+}
+
+/* ===== 3) 기분 버튼 5개 (이 앱의 핵심) =====
+   flexbox로 한 줄에 나란히 배치 */
+.moods {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mood-btn {
+  flex: 1;                  /* 5개가 공간을 똑같이 나눠 가짐 */
+  aspect-ratio: 1 / 1;      /* 정사각형 유지 */
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 누를 때만 짧게 반응 (불필요한 애니메이션은 안 넣음) */
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.mood-btn:active { transform: scale(0.94); }
+
+/* 오늘 이미 고른 기분은 테두리로 표시 */
+.mood-btn.selected {
+  box-shadow: 0 0 0 2px var(--text);
+  border-color: transparent;
+}
+
+/* 키보드 탭으로 이동할 때 위치가 보이게 (접근성) */
+.mood-btn:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--m5);
+  outline-offset: 2px;
+}
+
+.status {
+  min-height: 20px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 32px;
+}
+
+/* ===== 4) 달력 ===== */
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.cal-title { font-size: 15px; font-weight: 600; }
+.nav-btn {
+  width: 34px; height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+.nav-btn:active { background: var(--surface); }
+
+/* CSS Grid로 7열 달력 만들기 (연습한 grid가 여기서 쓰임!) */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.dow {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+.cell {
+  aspect-ratio: 1 / 1;
+  border-radius: 9px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cell.empty { background: transparent; }          /* 1일 앞의 빈칸 */
+.cell.filled { color: rgba(0,0,0,0.55); font-weight: 600; }
+.cell.today { box-shadow: 0 0 0 1.5px var(--text); }
+
+/* ===== 5) 맨 아래 백업 영역 ===== */
+.footer {
+  margin-top: 34px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+}
+.text-btn {
+  flex: 1;
+  padding: 11px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.text-btn:active { background: var(--surface); }
+.hint { font-size: 11px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+
+/* 움직임을 줄이는 설정을 켠 사람에겐 애니메이션 끄기 */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+  <!-- 오늘 날짜 -->
+  <div class="today-label">오늘</div>
+  <div class="today-date" id="todayDate"></div>
+
+  <!-- 기분 버튼 5개. JS에서 만들어 넣음 -->
+  <div class="moods" id="moods"></div>
+  <div class="status" id="status"></div>
+
+  <!-- 달력 -->
+  <div class="cal-head">
+    <button class="nav-btn" id="prevBtn" aria-label="이전 달">‹</button>
+    <div class="cal-title" id="calTitle"></div>
+    <button class="nav-btn" id="nextBtn" aria-label="다음 달">›</button>
+  </div>
+  <div class="cal-grid" id="calGrid"></div>
+
+  <!-- 백업 -->
+  <div class="footer">
+    <button class="text-btn" id="exportBtn">기록 내보내기</button>
+    <button class="text-btn" id="importBtn">기록 불러오기</button>
+  </div>
+  <p class="hint">
+    기록은 이 기기 안에만 저장돼요. 브라우저 데이터를 지우면 사라지니
+    가끔 내보내기로 백업해두세요.
+  </p>
+
+  <!-- 파일 불러오기용. 화면에는 안 보이게 숨김 -->
+  <input type="file" id="fileInput" accept=".json" style="display:none">
+
+<script>
+/* =========================================================
+   기분 기록 앱 — 자바스크립트
+   흐름: 저장소 준비 → 데이터 읽기 → 화면 그리기 → 클릭 처리
+   ========================================================= */
+
+/* --- 1) 기분 단계 정의 (배열) ---
+   점수 1~5에 이모지와 이름을 붙여둠 */
+const MOODS = [
+  { score: 1, emoji: "😞", name: "최악" },
+  { score: 2, emoji: "🙁", name: "별로" },
+  { score: 3, emoji: "😐", name: "보통" },
+  { score: 4, emoji: "🙂", name: "좋음" },
+  { score: 5, emoji: "😄", name: "최고" },
+];
+
+/* --- 2) 저장소 준비 ---
+   localStorage = 브라우저가 기기에 남겨두는 작은 저장 공간.
+   단, 미리보기 창처럼 막혀 있는 환경도 있어서 try/catch로 감싸고
+   실패하면 임시 메모리에라도 담아둡니다. */
+const STORE_KEY = "mood-log";
+let memoryFallback = {};   // localStorage를 못 쓸 때 대신 담을 곳
+let storageOK = true;
+
+function loadLog() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    // 저장된 게 없으면 빈 객체로 시작. 있으면 문자열 → 객체로 변환
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    storageOK = false;
+    return memoryFallback;
+  }
+}
+
+function saveLog(log) {
+  memoryFallback = log;
+  try {
+    // 객체는 그대로 못 넣기 때문에 JSON 문자열로 바꿔서 저장
+    localStorage.setItem(STORE_KEY, JSON.stringify(log));
+  } catch (e) {
+    storageOK = false;
+  }
+}
+
+/* --- 3) 전체 데이터 ---
+   모양: { "2026-09-14": 4, "2026-09-13": 2 }  (날짜: 점수) */
+let log = loadLog();
+
+/* 달력이 지금 몇 년 몇 월을 보고 있는지 기억하는 변수 */
+let viewYear, viewMonth;
+
+/* --- 4) 날짜를 "2026-09-14" 모양 문자열로 만드는 함수 ---
+   padStart(2, "0") → 9월을 "09"로 맞춰줌 */
+function toKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0"); // 월은 0부터 시작!
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+const today = new Date();
+const todayKey = toKey(today);
+
+/* --- 5) 오늘 날짜 글자 찍기 --- */
+function renderToday() {
+  const dows = ["일", "월", "화", "수", "목", "금", "토"];
+  document.getElementById("todayDate").textContent =
+    `${today.getMonth() + 1}월 ${today.getDate()}일 ${dows[today.getDay()]}요일`;
+}
+
+/* --- 6) 기분 버튼 5개 만들기 --- */
+function renderMoodButtons() {
+  const box = document.getElementById("moods");
+  box.innerHTML = "";   // 다시 그릴 때를 위해 먼저 비움
+
+  // 배열을 하나씩 돌면서 버튼을 만들어 붙임 (반복문 복습!)
+  MOODS.forEach(function (mood) {
+    const btn = document.createElement("button");
+    btn.className = "mood-btn";
+    btn.textContent = mood.emoji;
+    btn.setAttribute("aria-label", mood.name);   // 화면 읽기 도구용 이름
+    btn.style.background = `var(--m${mood.score})`;
+
+    // 오늘 이미 고른 점수면 표시해두기
+    if (log[todayKey] === mood.score) {
+      btn.classList.add("selected");
+    }
+
+    // 클릭하면 바로 저장 (확인 버튼 없음 = 3초 컷)
+    btn.addEventListener("click", function () {
+      log[todayKey] = mood.score;
+      saveLog(log);
+      renderMoodButtons();   // 선택 표시 갱신
+      renderCalendar();      // 달력에도 바로 반영
+      showStatus(`오늘은 "${mood.name}"으로 저장했어요.`);
+    });
+
+    box.appendChild(btn);
+  });
+}
+
+/* --- 7) 아래 안내 문구 --- */
+function showStatus(message) {
+  const el = document.getElementById("status");
+  if (!storageOK) {
+    el.textContent = "이 환경에서는 저장이 막혀 있어요. 폰이나 실제 주소에서 열면 저장됩니다.";
+    return;
+  }
+  el.textContent = message || (log[todayKey]
+    ? `오늘은 "${MOODS[log[todayKey] - 1].name}"으로 기록됨. 다시 누르면 바뀌어요.`
+    : "오늘 기분을 하나 골라주세요.");
+}
+
+/* --- 8) 달력 그리기 (이 앱에서 제일 재밌는 부분) --- */
+function renderCalendar() {
+  document.getElementById("calTitle").textContent = `${viewYear}년 ${viewMonth + 1}월`;
+
+  const grid = document.getElementById("calGrid");
+  grid.innerHTML = "";
+
+  // (1) 요일 머리글 7개
+  ["일", "월", "화", "수", "목", "금", "토"].forEach(function (d) {
+    const el = document.createElement("div");
+    el.className = "dow";
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  // (2) 이번 달 1일이 무슨 요일인지 → 그만큼 빈칸을 먼저 넣어야 줄이 맞음
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();  // 0=일요일
+  for (let i = 0; i < firstDay; i++) {
+    const el = document.createElement("div");
+    el.className = "cell empty";
+    grid.appendChild(el);
+  }
+
+  // (3) 이번 달 날짜 수 구하기
+  //     "다음 달 0일" = 이번 달 마지막 날. 자주 쓰는 요령이에요.
+  const lastDate = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  for (let day = 1; day <= lastDate; day++) {
+    const key = toKey(new Date(viewYear, viewMonth, day));
+    const score = log[key];          // 기록이 없으면 undefined
+
+    const el = document.createElement("div");
+    el.className = "cell";
+    el.textContent = day;
+
+    if (score) {
+      el.classList.add("filled");
+      el.style.background = `var(--m${score})`;   // 점수에 맞는 색으로 칠하기
+      el.title = `${viewMonth + 1}월 ${day}일 · ${MOODS[score - 1].name}`;
+    }
+    if (key === todayKey) el.classList.add("today");
+
+    grid.appendChild(el);
+  }
+}
+
+/* --- 9) 달 넘기기 버튼 --- */
+document.getElementById("prevBtn").addEventListener("click", function () {
+  viewMonth--;
+  if (viewMonth < 0) { viewMonth = 11; viewYear--; }   // 1월에서 뒤로 가면 작년 12월
+  renderCalendar();
+});
+document.getElementById("nextBtn").addEventListener("click", function () {
+  viewMonth++;
+  if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+  renderCalendar();
+});
+
+/* --- 10) 백업: 기록을 파일로 내보내기 --- */
+document.getElementById("exportBtn").addEventListener("click", function () {
+  const text = JSON.stringify(log, null, 2);            // 보기 좋게 줄바꿈 포함
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  // 눈에 안 보이는 링크를 만들어 클릭시키는 방식 (파일 저장 기본 패턴)
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `기분기록-${todayKey}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+/* --- 11) 백업: 파일에서 기록 불러오기 --- */
+document.getElementById("importBtn").addEventListener("click", function () {
+  document.getElementById("fileInput").click();
+});
+document.getElementById("fileInput").addEventListener("change", function (event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function () {
+    try {
+      const incoming = JSON.parse(reader.result);
+      // 기존 기록 위에 덮어쓰기 (같은 날짜는 불러온 값이 이김)
+      log = Object.assign({}, log, incoming);
+      saveLog(log);
+      renderMoodButtons();
+      renderCalendar();
+      showStatus("기록을 불러왔어요.");
+    } catch (e) {
+      showStatus("파일을 읽지 못했어요. 내보내기로 만든 json 파일인지 확인해주세요.");
+    }
+  };
+  reader.readAsText(file);
+});
+
+/* --- 12) 앱 시작 ---
+   여기가 실행 순서의 출발점입니다. */
+viewYear = today.getFullYear();
+viewMonth = today.getMonth();
+
+renderToday();
+renderMoodButtons();
+renderCalendar();
+showStatus();
+</script>
+</body>
+</html>
