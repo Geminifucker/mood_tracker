@@ -148,6 +148,32 @@ button:focus-visible {
   margin-bottom: 10px;
 }
 
+/* ===== 한 줄 메모 =====
+   기분을 고른 뒤에만 나타남. 평소엔 숨어 있어서 부담이 없어요. */
+.memo { display: none; }
+.memo.show { display: block; }
+.memo input {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;   /* 입력칸은 글꼴을 따로 지정해야 본문과 같아져요 */
+}
+.memo input::placeholder { color: var(--muted); }
+.memo input:focus {
+  outline: none;
+  border-color: var(--m3);
+}
+.memo-hint {
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 15px;       /* 글자가 없을 때도 높이를 잡아둬서 화면이 안 흔들림 */
+  margin-top: 5px;
+}
+
 /* ===== 백업 알림 배너 =====
    평소엔 display:none으로 숨어 있고, 조건이 맞으면 .show를 붙여서 보여줌.
    이렇게 '클래스만 갈아끼우기'가 JS로 화면 바꾸는 가장 기본 패턴이에요. */
@@ -225,6 +251,7 @@ button:focus-visible {
   padding-bottom: 2px;
 }
 .cell {
+  position: relative;   /* 안에 점을 띄우려면 기준점이 필요해요 */
   aspect-ratio: 1 / 1;
   border-radius: 9px;
   background: var(--surface);
@@ -237,6 +264,22 @@ button:focus-visible {
 .cell.empty { background: transparent; }          /* 1일 앞의 빈칸 */
 .cell.filled { color: rgba(0,0,0,0.55); font-weight: 600; }
 .cell.today { box-shadow: 0 0 0 1.5px var(--text); }
+
+/* 메모가 있는 날 표시.
+   ::after는 HTML에 없는 작은 장식을 CSS만으로 덧붙이는 방법이에요.
+   currentColor를 쓰면 그 칸 글자색을 그대로 따라가서 배경색과 자동으로 어울려요. */
+.cell.has-note::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
+}
 
 /* 눌러서 기록할 수 있는 날 (오늘 포함, 미래는 제외) */
 .cell.clickable { cursor: pointer; }
@@ -283,6 +326,13 @@ button:focus-visible {
   <!-- 기분 버튼 5개. JS에서 만들어 넣음 -->
   <div class="moods" id="moods"></div>
   <div class="status" id="status"></div>
+
+  <!-- 한 줄 메모. 기분을 고르기 전엔 숨어 있음 -->
+  <div class="memo" id="memo">
+    <input type="text" id="memoInput" maxlength="80"
+           placeholder="오늘 뭐 했는지 한 줄 (안 써도 돼요)">
+    <div class="memo-hint" id="memoHint"></div>
+  </div>
 
   <!-- 백업 알림 배너. 처음엔 숨어 있음 -->
   <div class="banner" id="banner">
@@ -333,6 +383,7 @@ const MOODS = [
    단, 미리보기 창처럼 막혀 있는 환경도 있어서 try/catch로 감싸고
    실패하면 임시 메모리에라도 담아둡니다. */
 const STORE_KEY = "mood-log";          // 기분 기록
+const NOTES_KEY = "mood-notes";        // 한 줄 메모 (기분과 따로 보관)
 const BACKUP_KEY = "mood-backup-month"; // 마지막으로 백업한 달 ("2026-09" 형태)
 let memoryFallback = {};   // localStorage를 못 쓸 때 대신 담을 곳
 let storageOK = true;
@@ -358,9 +409,31 @@ function saveLog(log) {
   }
 }
 
+/* 메모도 같은 방식으로 읽고 쓰기. 기분 점수와 저장 칸을 따로 둔 이유는
+   기존 기록을 건드리지 않아도 되기 때문이에요. */
+function loadNotes() {
+  try {
+    const raw = localStorage.getItem(NOTES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveNotes() {
+  try {
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+  } catch (e) {
+    storageOK = false;
+  }
+}
+
 /* --- 3) 전체 데이터 ---
    모양: { "2026-09-14": 4, "2026-09-13": 2 }  (날짜: 점수) */
 let log = loadLog();
+
+/* 메모. 모양: { "2026-09-14": "회의 길었음" } */
+let notes = loadNotes();
 
 /* 달력이 지금 몇 년 몇 월을 보고 있는지 기억하는 변수 */
 let viewYear, viewMonth;
@@ -421,9 +494,11 @@ function renderMoodButtons() {
 
     // 클릭하면 바로 저장 (확인 버튼 없음 = 3초 컷)
     btn.addEventListener("click", function () {
+      flushNote();           // 쓰던 메모가 있으면 먼저 저장
       log[selectedKey] = mood.score;
       saveLog(log);
       renderMoodButtons();   // 선택 표시 갱신
+      renderMemo();          // 메모 입력칸 나타나게
       renderCalendar();      // 달력에도 바로 반영
       const when = selectedKey === todayKey ? "오늘은" : labelOf(selectedKey) + "을";
       showStatus(`${when} "${mood.name}"으로 저장했어요.`);
@@ -451,6 +526,61 @@ function showStatus(message) {
     ? `${when} "${MOODS[score - 1].name}"으로 기록됨. 다시 누르면 바뀌어요.`
     : `${when} 기분을 하나 골라주세요.`;
 }
+
+/* --- 7-1) 한 줄 메모 ---
+   기분이 기록된 날에만 입력칸을 보여주고, 저장된 메모가 있으면 채워 넣음 */
+function renderMemo() {
+  const box = document.getElementById("memo");
+  const input = document.getElementById("memoInput");
+  const hasMood = Boolean(log[selectedKey]);
+
+  box.classList.toggle("show", hasMood);
+  input.value = hasMood ? (notes[selectedKey] || "") : "";
+  document.getElementById("memoHint").textContent = "";
+}
+
+/* 타이핑할 때마다 저장하면 너무 잦으니, 손을 멈춘 뒤 0.6초에 한 번만 저장.
+   이런 '기다렸다 한 번만 실행' 방식을 디바운스(debounce)라고 불러요. */
+let noteTimer = null;
+
+function saveNoteNow() {
+  const input = document.getElementById("memoInput");
+  const text = input.value.trim();
+
+  if (text) {
+    notes[selectedKey] = text;
+  } else {
+    delete notes[selectedKey];   // 빈칸이면 아예 지움 (빈 문자열을 남기지 않게)
+  }
+  saveNotes();
+  document.getElementById("memoHint").textContent = text ? "메모 저장됨" : "";
+  renderCalendar();   // 점이 바로 나타나거나 사라지게 달력 다시 그리기
+}
+
+/* 날짜를 옮기거나 기분을 다시 고르기 전에, 아직 저장 안 된 글자를 먼저 저장 */
+function flushNote() {
+  if (noteTimer) {
+    clearTimeout(noteTimer);
+    noteTimer = null;
+    saveNoteNow();
+  }
+}
+
+document.getElementById("memoInput").addEventListener("input", function () {
+  clearTimeout(noteTimer);                    // 이전 예약 취소
+  noteTimer = setTimeout(function () {
+    noteTimer = null;
+    saveNoteNow();
+  }, 600);
+});
+
+/* 입력칸에서 빠져나갈 때는 기다리지 않고 바로 저장 */
+document.getElementById("memoInput").addEventListener("blur", flushNote);
+
+/* 엔터를 누르면 키보드 내려가게 (폰에서 편함) */
+document.getElementById("memoInput").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") this.blur();
+});
 
 /* --- 7-2) 오늘이 이번 달 마지막 날인지 확인 ---
    "다음 달 0일"이 그 달의 마지막 날짜예요. 달력 그릴 때 쓴 요령과 같습니다.
@@ -525,8 +655,10 @@ function renderCalendar() {
     if (score) {
       el.classList.add("filled");
       el.style.background = `var(--m${score})`;   // 점수에 맞는 색으로 칠하기
-      el.title = `${viewMonth + 1}월 ${day}일 · ${MOODS[score - 1].name}`;
+      el.title = `${viewMonth + 1}월 ${day}일 · ${MOODS[score - 1].name}`
+        + (notes[key] ? ` · ${notes[key]}` : "");
     }
+    if (notes[key]) el.classList.add("has-note");   // 메모 있는 날에 점 찍기
     if (key === todayKey) el.classList.add("today");
     if (key === selectedKey) el.classList.add("picked");
 
@@ -535,9 +667,11 @@ function renderCalendar() {
     if (key <= todayKey) {
       el.classList.add("clickable");
       el.addEventListener("click", function () {
+        flushNote();           // 날짜 옮기기 전에 쓰던 메모 저장
         selectedKey = key;     // 기록 대상을 이 날짜로 바꿈
         renderHeader();
         renderMoodButtons();
+        renderMemo();          // 그날 메모가 있으면 입력칸에 채워줌
         renderCalendar();
         showStatus();
         // 폰에서는 버튼이 화면 위에 있으니 위로 올려줌
@@ -563,11 +697,13 @@ document.getElementById("nextBtn").addEventListener("click", function () {
 
 /* --- 9-2) '오늘로' 버튼: 기록 대상을 오늘로 되돌리고 달력도 이번 달로 --- */
 document.getElementById("todayBtn").addEventListener("click", function () {
+  flushNote();
   selectedKey = todayKey;
   viewYear = today.getFullYear();
   viewMonth = today.getMonth();
   renderHeader();
   renderMoodButtons();
+  renderMemo();
   renderCalendar();
   showStatus();
 });
@@ -576,7 +712,14 @@ document.getElementById("todayBtn").addEventListener("click", function () {
 /* 아래 백업 버튼과 배너의 백업 버튼이 똑같은 일을 하므로
    함수로 한 번만 만들어두고 두 곳에서 불러 씁니다. */
 function exportLog() {
-  const text = JSON.stringify(log, null, 2);            // 보기 좋게 줄바꿈 포함
+  flushNote();   // 쓰다 만 메모까지 포함시키기
+
+  /* 백업 파일 모양이 바뀌었어요.
+     예전: { "2026-09-14": 4 }
+     지금: { "version": 2, "moods": {...}, "notes": {...} }
+     version을 적어두면 나중에 형식이 또 바뀌어도 구분할 수 있어요. */
+  const payload = { version: 2, moods: log, notes: notes };
+  const text = JSON.stringify(payload, null, 2);        // 보기 좋게 줄바꿈 포함
   const blob = new Blob([text], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
@@ -616,10 +759,19 @@ document.getElementById("fileInput").addEventListener("change", function (event)
   reader.onload = function () {
     try {
       const incoming = JSON.parse(reader.result);
+
+      /* 예전 백업 파일과 새 파일 둘 다 읽을 수 있게 처리.
+         moods 칸이 있으면 새 형식, 없으면 옛 형식(날짜:점수만 들어있는 파일)이에요. */
+      const incomingMoods = incoming.moods ? incoming.moods : incoming;
+      const incomingNotes = incoming.notes ? incoming.notes : {};
+
       // 기존 기록 위에 덮어쓰기 (같은 날짜는 불러온 값이 이김)
-      log = Object.assign({}, log, incoming);
+      log = Object.assign({}, log, incomingMoods);
+      notes = Object.assign({}, notes, incomingNotes);
       saveLog(log);
+      saveNotes();
       renderMoodButtons();
+      renderMemo();
       renderCalendar();
       showStatus("기록을 불러왔어요.");
     } catch (e) {
@@ -636,6 +788,7 @@ viewMonth = today.getMonth();
 
 renderHeader();
 renderMoodButtons();
+renderMemo();
 renderCalendar();
 showStatus();
 </script>
