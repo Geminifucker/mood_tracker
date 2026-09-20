@@ -964,8 +964,8 @@ function renderWeeklyBar() {
       : `${s.getMonth() + 1}월 ${s.getDate()}일 – ${e.getMonth() + 1}월 ${e.getDate()}일`;
 
   /* SVG 치수 설정 */
-  const W = 356, H = 190;
-  const padL = 6, padR = 6, padT = 12, padB = 40;
+  const W = 356, H = 220;
+  const padL = 6, padR = 6, padT = 36, padB = 40;
   const plotH = H - padT - padB;
   const colW  = (W - padL - padR) / 7;
   const barW  = colW * 0.62;
@@ -1036,8 +1036,8 @@ function renderMonthlyLine() {
   document.getElementById("monthGraphLabel").textContent =
     `${graphYear}년 ${graphMonth + 1}월`;
 
-  const W = 356, H = 190;
-  const padL = 18, padR = 14, padT = 16, padB = 30;
+  const W = 356, H = 210;
+  const padL = 18, padR = 14, padT = 24, padB = 30;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
