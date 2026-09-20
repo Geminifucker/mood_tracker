@@ -312,9 +312,93 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ===== 탭 바 =====
+   두 버튼이 둥근 박스 안에 들어가고, 고른 탭이 흰 카드처럼 올라오는 방식 */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 28px;
+  background: var(--surface);
+  border-radius: 13px;
+  padding: 4px;
+}
+.tab {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.tab.active {
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ===== 그래프 탭 ===== */
+.graph-section { margin-bottom: 28px; }
+.graph-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.graph-label { font-size: 15px; font-weight: 600; }
+/* 차트를 감싸는 카드 */
+.chart-wrap {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 16px 12px 10px;
+  overflow: hidden;
+}
+/* SVG는 항상 카드 너비에 꽉 차게 */
+.chart-wrap svg { display: block; width: 100%; }
+/* 기록이 없을 때 메시지 */
+.graph-empty {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 28px 0;
+}
+/* 범례: 기분 1~5 색 설명 */
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
 </style>
 </head>
 <body>
+
+  <!-- 탭 바: 기록 / 그래프 전환 -->
+  <div class="tabs">
+    <button class="tab active" id="tabRecord">기록</button>
+    <button class="tab" id="tabGraph">그래프</button>
+  </div>
+
+  <!-- 탭 1: 기록 패널 (기존 내용 전부) -->
+  <div id="panelRecord">
 
   <!-- 지금 고른 날짜 -->
   <div class="today-label" id="dateLabel">오늘</div>
@@ -361,6 +445,36 @@ button:focus-visible {
 
   <!-- 파일 불러오기용. 화면에는 안 보이게 숨김 -->
   <input type="file" id="fileInput" accept=".json" style="display:none">
+
+  </div><!-- #panelRecord 끝 -->
+
+  <!-- 탭 2: 그래프 패널 (처음엔 숨어 있음) -->
+  <div id="panelGraph" style="display:none">
+
+    <!-- ① 주간 막대 그래프 -->
+    <div class="graph-section">
+      <div class="graph-head">
+        <button class="nav-btn" id="weekPrevBtn" aria-label="이전 주">‹</button>
+        <div class="graph-label" id="weekLabel"></div>
+        <button class="nav-btn" id="weekNextBtn" aria-label="다음 주">›</button>
+      </div>
+      <!-- SVG는 JS가 이 안에 그려 넣음 -->
+      <div class="chart-wrap" id="weekChart"></div>
+      <div class="chart-legend" id="weekLegend"></div>
+    </div>
+
+    <!-- ② 월간 선 그래프 -->
+    <div class="graph-section">
+      <div class="graph-head">
+        <button class="nav-btn" id="monthGraphPrevBtn" aria-label="이전 달">‹</button>
+        <div class="graph-label" id="monthGraphLabel"></div>
+        <button class="nav-btn" id="monthGraphNextBtn" aria-label="다음 달">›</button>
+      </div>
+      <div class="chart-wrap" id="monthChart"></div>
+      <div class="chart-legend" id="monthLegend"></div>
+    </div>
+
+  </div><!-- #panelGraph 끝 -->
 
 <script>
 /* =========================================================
@@ -791,6 +905,268 @@ renderMoodButtons();
 renderMemo();
 renderCalendar();
 showStatus();
+
+/* =========================================================
+   그래프 섹션
+   ========================================================= */
+
+/* 기분 색상 배열. CSS 변수를 직접 못 쓰는 SVG를 위해 실제 HEX 값으로 */
+const MOOD_HEX = ["#3D4457", "#4E6E82", "#6F9080", "#A8A45E", "#D9A94A"];
+
+/* --- G1) 그래프 탭 상태 변수 --- */
+
+/* 주간 차트용: 현재 보고 있는 주의 월요일 */
+let graphWeekOf = getMondayOf(today);
+
+/* 월간 차트용: 현재 보고 있는 연/월 */
+let graphYear  = today.getFullYear();
+let graphMonth = today.getMonth();
+
+/* 어떤 날짜가 속한 주의 월요일을 반환 (한국은 월요일 시작) */
+function getMondayOf(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  /* getDay(): 0=일, 1=월, ..., 6=토
+     일요일은 -6, 월요일은 0, 화요일은 -1... */
+  const diff = d.getDay() === 0 ? -6 : 1 - d.getDay();
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+/* --- G2) 범례 만들기 ---
+   기분 5단계 색 설명을 차트 아래에 표시 */
+function renderLegend(containerId) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = MOODS.map(function (m) {
+    return `<span class="legend-item">
+      <span class="legend-dot" style="background:${MOOD_HEX[m.score - 1]}"></span>
+      ${m.name}
+    </span>`;
+  }).join("");
+}
+
+/* --- G3) 주간 막대 그래프 ---
+   이번 주 월~일을 막대로 그림. 기록이 있는 날은 기분 색, 없는 날은 흐린 선 */
+function renderWeeklyBar() {
+  /* 이번 주 7일의 날짜 객체를 만들어둠 */
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(graphWeekOf);
+    d.setDate(d.getDate() + i);
+    days.push(d);
+  }
+
+  /* 주 범위 레이블 (예: "9월 15–21일", 달이 바뀌면 "9월 29일 – 10월 5일") */
+  const s = days[0], e = days[6];
+  document.getElementById("weekLabel").textContent =
+    s.getMonth() === e.getMonth()
+      ? `${s.getMonth() + 1}월 ${s.getDate()}–${e.getDate()}일`
+      : `${s.getMonth() + 1}월 ${s.getDate()}일 – ${e.getMonth() + 1}월 ${e.getDate()}일`;
+
+  /* SVG 치수 설정 */
+  const W = 356, H = 190;
+  const padL = 6, padR = 6, padT = 12, padB = 40;
+  const plotH = H - padT - padB;
+  const colW  = (W - padL - padR) / 7;
+  const barW  = colW * 0.62;
+  const DOW   = ["월", "화", "수", "목", "금", "토", "일"];
+
+  /* 가이드 라인: y축의 각 점수 위치에 옅은 선 */
+  let grid = "";
+  for (let s = 1; s <= 5; s++) {
+    const y = padT + plotH - (s / 5) * plotH;
+    grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
+      stroke="#2C2F36" stroke-width="1"/>`;
+  }
+
+  let bars = "", dayLabels = "";
+  let hasAny = false;
+
+  days.forEach(function (d, i) {
+    const key   = toKey(d);
+    const score = log[key];
+    const cx    = padL + (i + 0.5) * colW;
+    const bx    = cx - barW / 2;
+    const isFuture = key > todayKey;
+    const isToday  = key === todayKey;
+
+    if (score) {
+      hasAny = true;
+      const barH = (score / 5) * plotH;
+      const by   = padT + plotH - barH;
+      /* 막대 위에 이모지를 띄워 한눈에 기분이 보이게 */
+      bars += `<rect x="${bx}" y="${by}" width="${barW}" height="${barH}"
+        rx="5" fill="${MOOD_HEX[score - 1]}" opacity="0.9"/>
+      <text x="${cx}" y="${by - 4}" text-anchor="middle"
+        font-size="14" dominant-baseline="auto">${MOODS[score - 1].emoji}</text>`;
+    } else if (!isFuture) {
+      /* 기록 없는 지난 날: 바닥에 흐린 바 */
+      bars += `<rect x="${bx}" y="${padT + plotH - 3}" width="${barW}"
+        height="3" rx="2" fill="#2C2F36"/>`;
+    }
+
+    /* 요일 + 날짜 레이블 */
+    const col = isFuture ? "#3A3D45"
+              : isToday  ? "#ECEAE4"
+              :             "#868A93";
+    dayLabels += `
+      <text x="${cx}" y="${H - 20}" text-anchor="middle"
+        fill="${col}" font-size="12" font-weight="${isToday ? 700 : 400}">${DOW[i]}</text>
+      <text x="${cx}" y="${H - 6}" text-anchor="middle"
+        fill="${col}" font-size="10" opacity="0.7">${d.getDate()}</text>`;
+  });
+
+  if (!hasAny) {
+    document.getElementById("weekChart").innerHTML =
+      `<div class="graph-empty">이번 주 기록이 없어요</div>`;
+    return;
+  }
+
+  document.getElementById("weekChart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      ${grid}${bars}${dayLabels}
+    </svg>`;
+}
+
+/* --- G4) 월간 선 그래프 ---
+   이번 달 매일을 점으로 찍고 선으로 잇습니다.
+   기록이 없는 날은 건너뛰고, 선은 연속된 점만 연결해요. */
+function renderMonthlyLine() {
+  const lastDate = new Date(graphYear, graphMonth + 1, 0).getDate();
+  document.getElementById("monthGraphLabel").textContent =
+    `${graphYear}년 ${graphMonth + 1}월`;
+
+  const W = 356, H = 190;
+  const padL = 18, padR = 14, padT = 16, padB = 30;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  /* 이번 달 기록이 있는 날 목록을 만들어둠 */
+  const points = [];
+  for (let day = 1; day <= lastDate; day++) {
+    const key = toKey(new Date(graphYear, graphMonth, day));
+    const score = log[key];
+    if (score) {
+      /* x: 1일은 맨 왼쪽, lastDate일은 맨 오른쪽 */
+      const x = padL + ((day - 1) / Math.max(lastDate - 1, 1)) * plotW;
+      /* y: 1점이 아래, 5점이 위. (score-1)/4로 0~1 범위를 만들고 반전 */
+      const y = padT + plotH - ((score - 1) / 4) * plotH;
+      points.push({ x, y, score, day, key });
+    }
+  }
+
+  if (points.length === 0) {
+    document.getElementById("monthChart").innerHTML =
+      `<div class="graph-empty">이번 달 기록이 없어요</div>`;
+    return;
+  }
+
+  /* y축 가이드 라인 + 점수 레이블 */
+  let grid = "";
+  const scoreNames = ["", "최악", "별로", "보통", "좋음", "최고"];
+  for (let sc = 1; sc <= 5; sc++) {
+    const y = padT + plotH - ((sc - 1) / 4) * plotH;
+    grid += `<line x1="${padL - 4}" y1="${y}" x2="${W - padR}" y2="${y}"
+      stroke="#2C2F36" stroke-width="1"/>
+    <text x="${padL - 6}" y="${y}" text-anchor="end" dominant-baseline="middle"
+      fill="#3A3D45" font-size="9">${scoreNames[sc]}</text>`;
+  }
+
+  /* 점수가 변하는 구간마다 선 색을 그라데이션처럼 바꾸기 위해
+     세그먼트 단위로 선을 그음. 두 점 사이의 색은 두 점 색의 중간값 사용. */
+  let lines = "";
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    /* 날짜가 너무 멀리 떨어진 구간(8일 이상)엔 선을 안 그음.
+       기록이 한참 비어있는 구간을 연결하면 오해할 수 있어요. */
+    if (b.day - a.day <= 7) {
+      lines += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+        stroke="${MOOD_HEX[a.score - 1]}" stroke-width="2"
+        stroke-linecap="round" opacity="0.7"/>`;
+    }
+  }
+
+  /* 각 점 + 호버 시 날짜 보여주기 */
+  let dots = "";
+  points.forEach(function (p) {
+    dots += `<circle cx="${p.x}" cy="${p.y}" r="5"
+      fill="${MOOD_HEX[p.score - 1]}" stroke="#16171B" stroke-width="2">
+      <title>${graphMonth + 1}월 ${p.day}일 · ${MOODS[p.score - 1].name}</title>
+    </circle>`;
+  });
+
+  /* x축 날짜 레이블: 1일, 5의 배수, 마지막 날만 표시해서 너무 안 빽빽하게 */
+  let xLabels = "";
+  for (let day = 1; day <= lastDate; day++) {
+    if (day === 1 || day % 5 === 0 || day === lastDate) {
+      const x = padL + ((day - 1) / Math.max(lastDate - 1, 1)) * plotW;
+      xLabels += `<text x="${x}" y="${H - 6}" text-anchor="middle"
+        fill="#868A93" font-size="10">${day}</text>`;
+    }
+  }
+
+  document.getElementById("monthChart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+      ${grid}${lines}${dots}${xLabels}
+    </svg>`;
+}
+
+/* --- G5) 그래프 탭에 들어올 때 둘 다 한번에 그리기 --- */
+function renderGraphs() {
+  renderWeeklyBar();
+  renderMonthlyLine();
+  renderLegend("weekLegend");
+  renderLegend("monthLegend");
+}
+
+/* --- G6) 주간 차트 내비게이션 --- */
+document.getElementById("weekPrevBtn").addEventListener("click", function () {
+  graphWeekOf.setDate(graphWeekOf.getDate() - 7);
+  renderWeeklyBar();
+});
+document.getElementById("weekNextBtn").addEventListener("click", function () {
+  const next = new Date(graphWeekOf);
+  next.setDate(next.getDate() + 7);
+  /* 미래 주는 안 보이게 막음 */
+  if (next <= getMondayOf(today)) {
+    graphWeekOf = next;
+    renderWeeklyBar();
+  }
+});
+
+/* --- G7) 월간 차트 내비게이션 --- */
+document.getElementById("monthGraphPrevBtn").addEventListener("click", function () {
+  graphMonth--;
+  if (graphMonth < 0) { graphMonth = 11; graphYear--; }
+  renderMonthlyLine();
+});
+document.getElementById("monthGraphNextBtn").addEventListener("click", function () {
+  /* 현재 달 이후는 막음 */
+  if (graphYear < today.getFullYear() ||
+      (graphYear === today.getFullYear() && graphMonth < today.getMonth())) {
+    graphMonth++;
+    if (graphMonth > 11) { graphMonth = 0; graphYear++; }
+    renderMonthlyLine();
+  }
+});
+
+/* --- G8) 탭 전환 ---
+   탭 버튼을 누르면 해당 패널만 보이고 나머지는 숨김.
+   이게 싱글 페이지 앱(SPA)의 제일 간단한 형태예요. */
+document.getElementById("tabRecord").addEventListener("click", function () {
+  this.classList.add("active");
+  document.getElementById("tabGraph").classList.remove("active");
+  document.getElementById("panelRecord").style.display = "";
+  document.getElementById("panelGraph").style.display = "none";
+});
+document.getElementById("tabGraph").addEventListener("click", function () {
+  this.classList.add("active");
+  document.getElementById("tabRecord").classList.remove("active");
+  document.getElementById("panelRecord").style.display = "none";
+  document.getElementById("panelGraph").style.display = "";
+  /* 그래프 탭에 들어올 때마다 최신 데이터로 다시 그림 */
+  renderGraphs();
+});
 </script>
 </body>
 </html>
